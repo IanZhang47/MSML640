@@ -1,0 +1,18 @@
+
+# Core
+torch>=2.2
+torchvision>=0.17
+numpy>=1.26
+nibabel>=5.2
+Pillow>=10.0
+scikit-image>=0.22
+tqdm>=4.66
+
+# UI / captions
+gradio>=4.0
+transformers>=4.41
+# accelerate is optional; comment if not needed
+accelerate>=0.30
+
+# For type hints / dev
+typing_extensions>=4.11
