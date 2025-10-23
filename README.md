@@ -3,7 +3,6 @@
 
 **Educational prototype** that takes an MRI volume (e.g., FLAIR), segments the *suspected* tumor region, overlays a saliency map, and generates a **non-diagnostic, plain‑English caption**. Built for clinician–caregiver communication.
 
-> ⚠️ This is **not** a medical device. For education only.
 
 ## Quickstart
 
