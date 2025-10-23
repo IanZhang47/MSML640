@@ -43,9 +43,6 @@ data/slices/
 - `src/caption/templates.py` — rule-based, non-diagnostic captions
 - `demo/app.py` — Gradio UI with slice slider, overlays, captions
 
-## Ethical note
-- Strong disclaimers in UI; captions avoid diagnostic language.
-
 
 ### BraTS-PED modality note
 - The data often uses suffixes like `-t2f.nii.gz`, `-t1c.nii.gz`, `-t1n.nii.gz`, `-t2w.nii.gz`.
