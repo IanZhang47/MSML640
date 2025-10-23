@@ -45,7 +45,6 @@ data/slices/
 
 ## Ethical note
 - Strong disclaimers in UI; captions avoid diagnostic language.
-- Include limitations in your report. Consider domain shift (adult → pediatric).
 
 
 ### BraTS-PED modality note
