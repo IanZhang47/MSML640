@@ -7,9 +7,6 @@ __pycache__/
 
 # Data/artifacts
 data/
-runs/
-checkpoints/
-outputs/
 *.nii
 *.nii.gz
 
