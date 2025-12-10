@@ -1,10 +1,8 @@
 import os
 import argparse
-from glob import glob
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from tqdm import tqdm
@@ -82,9 +80,51 @@ def make_overlay(img: np.ndarray,
     return Image.fromarray(overlay)
 
 
+def get_subject_id(filename: str) -> str:
+    """
+    Extract subject ID from filename.
+    Assumes pattern like 'BraTS-PED-00060-000_slice_029.png'.
+    """
+    return filename.split("_slice")[0]
+
+
+def select_unique_by_subject(records, k: int, reverse: bool = False):
+    """
+    Select up to k records, ensuring at most one slice per subject
+    (uniqueness by filename prefix before '_slice').
+
+    records: list of tuples (dice, fn, img_np, pred_np, gt_np), sorted ascending by dice.
+    reverse=False: iterate from worst to best.
+    reverse=True: iterate from best to worst.
+    """
+    selected = []
+    seen = set()
+
+    iterable = reversed(records) if reverse else records
+    for r in iterable:
+        dice, fn, img_np, pred_np, gt_np = r
+        subj = get_subject_id(fn)
+        if subj in seen:
+            continue
+        seen.add(subj)
+        selected.append(r)
+        if len(selected) >= k:
+            break
+
+    # For best examples, we iterated in reversed order (high→low),
+    # but we usually want them in descending Dice for saving/ranking.
+    if reverse:
+        # already in high→low order; keep as is
+        return selected
+    else:
+        # for worst examples, records was ascending, we iterated in that order,
+        # so selected is already low→high; keep as is
+        return selected
+
+
 def main():
     ap = argparse.ArgumentParser(
-        description="Find best and worst validation slices and save overlay images."
+        description="Find best and worst validation slices and save overlay images (unique subjects only)."
     )
     ap.add_argument("--data-val", required=True,
                     help="Validation slice dir with images/ and masks/")
@@ -93,9 +133,9 @@ def main():
     ap.add_argument("--out", default="eval/examples",
                     help="Output dir to save PNGs")
     ap.add_argument("--top-k", type=int, default=5,
-                    help="Number of best slices to save")
+                    help="Number of best subjects to save (one slice each)")
     ap.add_argument("--bottom-k", type=int, default=5,
-                    help="Number of worst slices to save")
+                    help="Number of worst subjects to save (one slice each)")
     ap.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     args = ap.parse_args()
 
@@ -141,23 +181,26 @@ def main():
 
             records.append((d, fn[0], img_np, pred_np, gt_np))
 
-    # sort by Dice
-    records.sort(key=lambda t: t[0])  # ascending
+    # sort by Dice (ascending)
+    records.sort(key=lambda t: t[0])
     N = len(records)
-    k_top = min(args.top_k, N)
-    k_bottom = min(args.bottom_k, N)
-
     print(f"Total val slices: {N}")
-    print(f"Saving {k_top} best and {k_bottom} worst examples.")
+
+    # choose unique-subject worst and best
+    worst_records = select_unique_by_subject(records, args.bottom_k, reverse=False)
+    best_records = select_unique_by_subject(records, args.top_k, reverse=True)
+
+    print(f"Unique subjects in worst set: {len(worst_records)}")
+    print(f"Unique subjects in best set:  {len(best_records)}")
 
     # worst examples
-    for rank, (d, fn, img_np, pred_np, gt_np) in enumerate(records[:k_bottom], start=1):
+    for rank, (d, fn, img_np, pred_np, gt_np) in enumerate(worst_records, start=1):
         overlay = make_overlay(img_np, pred_np, gt_np)
         out_name = f"{rank:02d}_dice-{d:.3f}_{fn}"
         overlay.save(os.path.join(worst_dir, out_name))
 
     # best examples
-    for rank, (d, fn, img_np, pred_np, gt_np) in enumerate(records[-k_top:], start=1):
+    for rank, (d, fn, img_np, pred_np, gt_np) in enumerate(best_records, start=1):
         overlay = make_overlay(img_np, pred_np, gt_np)
         out_name = f"{rank:02d}_dice-{d:.3f}_{fn}"
         overlay.save(os.path.join(best_dir, out_name))
