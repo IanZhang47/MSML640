@@ -1,61 +1,246 @@
+# MRI Explainer for Pediatric Brain Tumors
 
-# Patient-Friendly MRI Explainer (Pediatric Brain Tumors)
+This project takes a pediatric brain MRI volume and produces:
 
-**Educational prototype** that takes an MRI volume (e.g., FLAIR), segments the *suspected* tumor region, overlays a saliency map, and generates a **non-diagnostic, plain‑English caption**. Built for clinician–caregiver communication.
+- A 2D tumor segmentation (slice-wise U-Net)
+- A saliency heatmap (Grad-CAM)
+- A simple, plain-English caption for each slice
 
-> ⚠️ This is **not** a medical device. For education only.
+It is implemented in PyTorch and provides a Gradio demo UI for interactive exploration.
 
-## Quickstart
+---
+
+## 1. Project Overview
+
+### Goal
+
+Build a small but complete pipeline for:
+
+- Converting 3D BraTS-PED NIfTI volumes into 2D training slices
+- Training a 2D U-Net for whole-tumor segmentation
+- Visualizing model focus with Grad-CAM
+- Generating short, human-readable captions tied to the overlays
+
+The primary audience is pediatric brain tumor imaging, but the pipeline is general enough to adapt to other volumetric segmentation tasks.
+
+---
+
+## 2. Repository Structure
+
+```text
+mri-explainer/
+  ├─ src/
+  │   ├─ models/
+  │   │   └─ unet.py            # 2D U-Net in PyTorch
+  │   ├─ data/
+  │   │   └─ prepare_slices.py  # NIfTI → 2D PNG slices
+  │   ├─ interpret/
+  │   │   └─ gradcam.py         # Simple Grad-CAM for segmentation
+  │   ├─ caption/
+  │   │   └─ templates.py       # Simple rule-based caption generator
+  │   └─ train.py               # Training script (train/val)
+  ├─ demo/
+  │   └─ app.py                 # Gradio UI
+  ├─ data/                      # Local data (not in git)
+  ├─ checkpoints/               # Saved model checkpoints
+  ├─ eval/                      # Logs, CSV summaries, plots
+  ├─ requirements.txt
+  ├─ LICENSE
+  └─ README.md
+````
+
+---
+
+## 3. Environment Setup
+
+Tested with:
+
+* Python 3.10+
+* PyTorch 2.x (CPU mode)
+* Ubuntu/Linux
 
 ```bash
-# 1) Create env (Python 3.10+ recommended)
-python -m venv .venv && source .venv/bin/activate
+cd mri-explainer
+
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+
 pip install --upgrade pip
 pip install -r requirements.txt
-
-# 2) Prepare slices from BraTS-like data
-# Expect a folder with subject subfolders containing *_flair.nii.gz and *_seg.nii.gz.
-python src/data/prepare_slices.py --root /path/to/BraTS --out data/slices --modality flair
-
-# 3) Train a simple 2D U-Net on slices
-python src/train.py --data data/slices --epochs 5 --batch-size 8 --lr 1e-3 --out checkpoints/unet
-
-# 4) Run demo (CPU ok)
-python demo/app.py
 ```
 
-## Data layout (for training)
-After `prepare_slices.py`, you should have:
+---
+
+## 4. Data (BraTS-PED)
+
+Assumes the ASNR-MICCAI BraTS 2023 Pediatric dataset, with structure like:
+
+```text
+ASNR-MICCAI-BraTS2023-PED-Challenge-TrainingData/
+  BraTS-PED-00002-000/
+    BraTS-PED-00002-000-t2f.nii.gz
+    BraTS-PED-00002-000-t2w.nii.gz
+    BraTS-PED-00002-000-t1c.nii.gz
+    BraTS-PED-00002-000-t1n.nii.gz
+    BraTS-PED-00002-000-seg.nii.gz
+  ...
 ```
-data/slices/
+
+* Training split has `*seg.nii.gz` labels.
+* Validation split (official “ValidationData”) is typically unlabeled and can be used for qualitative testing.
+
+By default, the pipeline uses **T2-F** / **T2-FLAIR** (`*-t2f.nii.gz`) as the main input modality.
+
+---
+
+## 5. Slice Preparation
+
+Use `prepare_slices.py` to convert volumes to 2D PNG slices for supervised training.
+
+Basic command (full training data):
+
+```bash
+python src/data/prepare_slices.py \
+  --root /path/to/ASNR-MICCAI-BraTS2023-PED-Challenge-TrainingData \
+  --out  data/slices_ped_t2f_full \
+  --modality t2f \
+  --axis 2 \
+  --min-area 1
+```
+
+This produces:
+
+```text
+data/slices_ped_t2f_full/
   images/
-    BraTS_0001_slice_042.png
+    BraTS-PED-00002-000_slice_042.png
     ...
   masks/
-    BraTS_0001_slice_042.png
+    BraTS-PED-00002-000_slice_042.png
     ...
 ```
 
-## Components
-- `src/models/unet.py` — lightweight PyTorch U-Net (1-channel in → 1-channel out)
-- `src/data/prepare_slices.py` — convert NIfTI volumes to PNG slices (filtering to slices with labels)
-- `src/train.py` — train loop (BCE+Dice), logs to stdout
-- `src/interpret/gradcam.py` — simple Grad-CAM for the last encoder block
-- `src/caption/templates.py` — rule-based, non-diagnostic captions
-- `demo/app.py` — Gradio UI with slice slider, overlays, captions
+Key flags:
 
-## Ethical note
-- Strong disclaimers in UI; captions avoid diagnostic language.
-- Include limitations in your report. Consider domain shift (adult → pediatric).
+* `--modality`: `t2f | flair | t2w | t1c | t1n | auto`
+* `--axis`: slicing axis (0, 1, or 2)
+* `--min-area`: minimum tumor pixels per slice
+* `--size`: output image size (default 256×256)
+* `--limit-subjects`: restrict to first N subjects (smoke tests)
+* `--dry-run`: do not write PNGs; just report selected modalities
+* `--summary-csv`: per-subject statistics (default `eval/slice_counts.csv`)
+
+Example dry-run:
+
+```bash
+python src/data/prepare_slices.py \
+  --root /path/to/ASNR-MICCAI-BraTS2023-PED-Challenge-TrainingData \
+  --out  data/slices_ped_t2f_full \
+  --modality t2f \
+  --limit-subjects 3 \
+  --dry-run
+```
+
+---
+
+## 6. Train / Validation Split
+
+For quantitative evaluation, a **subject-level split** from the training set is used. Typical approach:
+
+1. Randomly sample a subset of subjects for validation (e.g., 20–25).
+2. Create two subject-root folders:
+
+   * `data/roots/train_subj/`
+   * `data/roots/val_subj/`
+3. Symlink or copy subject folders into each root.
+4. Run `prepare_slices.py` separately on each root:
+
+```bash
+# Train slices
+python src/data/prepare_slices.py \
+  --root data/roots/train_subj \
+  --out  data/slices_ped_t2f_train \
+  --modality t2f --axis 2 --min-area 1
+
+# Val slices
+python src/data/prepare_slices.py \
+  --root data/roots/val_subj \
+  --out  data/slices_ped_t2f_val \
+  --modality t2f --axis 2 --min-area 1
+```
+
+---
+
+## 7. Training
+
+Use `src/train.py` to train a 2D U-Net on the slice dataset.
+
+```bash
+python -m src.train \
+  --data-train data/slices_ped_t2f_train \
+  --data-val   data/slices_ped_t2f_val \
+  --epochs 10 \
+  --batch-size 4 \
+  --lr 1e-3 \
+  --out checkpoints/unet_ped_t2f
+```
+
+Outputs:
+
+* `checkpoints/unet_ped_t2f/best.pt` — model weights and metadata
+* `eval/train_log.csv` — per-epoch train loss and validation Dice
+---
+
+## 8. Gradio Demo
+
+The demo provides an interactive interface for:
+
+* Uploading a NIfTI volume
+* Running the trained model slice-wise
+* Viewing segmentation and Grad-CAM
+* Reading the generated caption
+
+Run from the repository root:
+
+```bash
+python -m demo.app
+```
+
+Then open the printed local URL (e.g. `http://127.0.0.1:7860`).
+
+In the UI:
+
+* Upload one `*.nii` / `*.nii.gz` volume (e.g. a `*-t2f.nii.gz` file).
+* Ppload a checkpoint (`.pt`) such as `checkpoints/unet_ped_t2f/best.pt`.
+* Use the slice slider to navigate the volume.
+
+---
+
+## 9. Evaluation & Analysis
+
+Typical checks:
+
+* **Quantitative (on labeled val split):**
+
+  * Mean/median Dice score for whole-tumor segmentation
+  * Distribution of Dice vs. slice index or subject
+
+* **Qualitative:**
+
+  * Visual inspection of segmentation + heatmap overlays
+  * Captions that roughly correspond to the visible highlighted region
+  * Side (left/right) and size descriptors that make sense across slices
+
+You can also export overlays and captions on the official unlabeled ValidationData for qualitative inspection only.
+
+---
+
+## 10. Extensions / Ideas
+
+* Better hyperparameter tuning
+* Compare different modalities (T2-F vs. T2W, etc.)
+* Try alternative backbones (e.g., lightweight ResNet encoder)
+* Experiment with alternative interpretability methods
+* Replace template captions with a small vision-language model (BLIP, etc.)
 
 
-### BraTS-PED modality note
-- The data often uses suffixes like `-t2f.nii.gz`, `-t1c.nii.gz`, `-t1n.nii.gz`, `-t2w.nii.gz`.
-- `prepare_slices.py` now supports `--modality auto|t2f|flair|t2w|t1c|t1n` and matches both `*_modality.nii.gz` and `-modality.nii.gz`.
-- Example for your dataset: `--modality t2f` (T2-FLAIR).
-
-
-### Slice-prep tips
-- Use `--limit-subjects N` to do a quick smoke test.
-- Use `--dry-run` to list subjects and chosen modality without writing files.
-- A per-subject summary is saved to `eval/slice_counts.csv`.
