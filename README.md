@@ -69,13 +69,6 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-To force CPU (useful if your GPU architecture isn’t supported):
-
-```bash
-export CUDA_VISIBLE_DEVICES=""   # Linux/macOS
-# set CUDA_VISIBLE_DEVICES= (PowerShell) on Windows
-```
-
 ---
 
 ## 4. Data (BraTS-PED)
@@ -183,8 +176,7 @@ python src/data/prepare_slices.py \
 Use `src/train.py` to train a 2D U-Net on the slice dataset.
 
 ```bash
-# CPU-only training
-CUDA_VISIBLE_DEVICES="" python -m src.train \
+python -m src.train \
   --data-train data/slices_ped_t2f_train \
   --data-val   data/slices_ped_t2f_val \
   --epochs 10 \
@@ -197,9 +189,6 @@ Outputs:
 
 * `checkpoints/unet_ped_t2f/best.pt` — model weights and metadata
 * `eval/train_log.csv` — per-epoch train loss and validation Dice
-
-You can also create a separate config to train on all slices (`data/slices_ped_t2f_full`) once you are satisfied with the validation behaviour.
-
 ---
 
 ## 8. Gradio Demo
@@ -214,8 +203,7 @@ The demo provides an interactive interface for:
 Run from the repository root:
 
 ```bash
-# CPU mode
-CUDA_VISIBLE_DEVICES="" python -m demo.app
+python -m demo.app
 ```
 
 Then open the printed local URL (e.g. `http://127.0.0.1:7860`).
@@ -223,7 +211,7 @@ Then open the printed local URL (e.g. `http://127.0.0.1:7860`).
 In the UI:
 
 * Upload one `*.nii` / `*.nii.gz` volume (e.g. a `*-t2f.nii.gz` file).
-* Optionally upload a checkpoint (`.pt`) such as `checkpoints/unet_ped_t2f/best.pt`.
+* Ppload a checkpoint (`.pt`) such as `checkpoints/unet_ped_t2f/best.pt`.
 * Use the slice slider to navigate the volume.
 
 ---
@@ -249,6 +237,7 @@ You can also export overlays and captions on the official unlabeled ValidationDa
 
 ## 10. Extensions / Ideas
 
+* Better hyperparameter tuning
 * Compare different modalities (T2-F vs. T2W, etc.)
 * Try alternative backbones (e.g., lightweight ResNet encoder)
 * Experiment with alternative interpretability methods
